@@ -1,0 +1,1184 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8" />
+<!--
+  ============================================================================
+  DÉPENSES DE VOYAGE — Web App (PWA) — ÉDITION FIREBASE (synchro multi-appareils)
+  (build v3)
+  ----------------------------------------------------------------------------
+  Fichier unique HTML5 / CSS3 / JavaScript moderne, sans dépendance obligatoire.
+  Fonctionne hors-ligne, optimisé iPhone, ajoutable à l'écran d'accueil.
+
+  Sommaire du code :
+    1.  <head> : métadonnées PWA iOS, icône inline, manifest (fichier séparé)
+    2.  CSS    : variables de thème (clair/sombre), composants, safe-area iPhone
+    3.  HTML   : écran de connexion + dashboard, feuilles d'ajout et voyages
+    4.  JS     : Firebase (Auth + Firestore hors-ligne, synchro temps réel)
+    5.  Points d'extension futurs balisés par  // TODO ÉVOLUTION
+  ============================================================================
+-->
+
+<!-- Zoom désactivé + prise en compte de l'encoche (safe-area) de l'iPhone -->
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover" />
+
+<!-- Métadonnées PWA iOS : permettent l'ajout à l'écran d'accueil en plein écran -->
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="apple-mobile-web-app-title" content="Dépenses" />
+<meta name="format-detection" content="telephone=no" />
+
+<!-- Couleur de la barre système selon le thème -->
+<meta name="theme-color" content="#f6f7f9" media="(prefers-color-scheme: light)" />
+<meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)" />
+
+<!-- Icône d'écran d'accueil : SVG inline encodé (aucun fichier externe requis) -->
+<link rel="apple-touch-icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Crect width='180' height='180' rx='40' fill='%23274690'/%3E%3Ctext x='50%25' y='54%25' font-size='96' text-anchor='middle' dominant-baseline='middle' font-family='Arial'%3E%E2%9C%88%EF%B8%8F%3C/text%3E%3C/svg%3E" />
+
+<!-- Manifest PWA : fichier séparé (nécessaire pour l'installabilité sur Android/Chrome).
+     Sans effet néfaste si le fichier est absent (ex. aperçu isolé) : le lien est simplement ignoré. -->
+<link rel="manifest" href="./manifest.webmanifest" />
+
+<title>Dépenses de voyage</title>
+
+<style>
+/* ==========================================================================
+   2. CSS
+   Palette « voyage » sobre : encre nuit + accent cobalt (dérivé par voyage).
+   L'accent réel est injecté via --accent selon le voyage actif.
+   ========================================================================== */
+
+/* --- Thème clair (par défaut) --- */
+:root {
+  --accent:        #274690;   /* accent par défaut, remplacé par voyage       */
+  --accent-soft:   #27469020;
+
+  --bg:            #f6f7f9;    /* fond de page                                 */
+  --surface:       #ffffff;    /* cartes                                        */
+  --surface-2:     #eef0f4;    /* éléments enfoncés (puces, champs)            */
+  --text:          #14161a;    /* texte principal                              */
+  --text-soft:     #6b7280;    /* texte secondaire                             */
+  --line:          #e4e7ec;    /* séparateurs                                  */
+  --ok:            #1f9d55;    /* budget sous contrôle                         */
+  --warn:          #d97706;    /* budget proche de la limite                   */
+  --danger:        #dc2626;    /* dépassement / suppression                    */
+  --shadow:        0 1px 2px rgba(16,24,40,.06), 0 8px 24px rgba(16,24,40,.06);
+  --radius:        18px;
+  --radius-sm:     12px;
+  --tap:           52px;       /* hauteur mini des zones tactiles (gros boutons)*/
+}
+
+/* --- Thème sombre : appliqué via [data-theme="dark"] OU préférence système --- */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #000000; --surface: #14161c; --surface-2: #1f2430;
+    --text: #f2f4f8; --text-soft: #9aa2b1; --line: #262b36;
+    --accent-soft: #ffffff14;
+    --shadow: 0 1px 2px rgba(0,0,0,.4), 0 10px 30px rgba(0,0,0,.35);
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #000000; --surface: #14161c; --surface-2: #1f2430;
+  --text: #f2f4f8; --text-soft: #9aa2b1; --line: #262b36;
+  --accent-soft: #ffffff14;
+  --shadow: 0 1px 2px rgba(0,0,0,.4), 0 10px 30px rgba(0,0,0,.35);
+}
+
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+
+html, body { margin: 0; height: 100%; }
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  /* Police système : rendu « natif » iOS, aucun téléchargement (hors-ligne) */
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, system-ui, sans-serif;
+  font-size: 16px;                 /* >=16px : empêche le zoom auto iOS sur les champs */
+  line-height: 1.4;
+  -webkit-font-smoothing: antialiased;
+  /* Respect des marges de sécurité iPhone (encoche, barre d'accueil) */
+  padding:
+    env(safe-area-inset-top)
+    env(safe-area-inset-right)
+    env(safe-area-inset-bottom)
+    env(safe-area-inset-left);
+  transition: background .25s ease, color .25s ease;
+}
+
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
+
+/* Chiffres alignés (colonnes de montants nettes) */
+.num { font-variant-numeric: tabular-nums; font-feature-settings: "tnum"; }
+
+/* --------------------------- En-tête --------------------------- */
+header {
+  position: sticky; top: 0; z-index: 20;
+  padding: 14px 18px 12px;
+  background: color-mix(in srgb, var(--bg) 82%, transparent);
+  backdrop-filter: saturate(1.4) blur(14px);
+  -webkit-backdrop-filter: saturate(1.4) blur(14px);
+  border-bottom: 1px solid var(--line);
+}
+.head-row { display: flex; align-items: center; gap: 12px; }
+.trip-switch {
+  flex: 1; min-width: 0;
+  display: flex; align-items: center; gap: 10px;
+  background: var(--surface); border: 1px solid var(--line);
+  border-radius: 999px; padding: 8px 14px; height: 44px;
+  box-shadow: var(--shadow); cursor: pointer; color: var(--text);
+}
+.trip-dot { width: 12px; height: 12px; border-radius: 50%; background: var(--accent); flex: none; }
+.trip-name { font-weight: 650; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.trip-caret { color: var(--text-soft); flex: none; }
+.icon-btn {
+  width: 44px; height: 44px; flex: none;
+  display: grid; place-items: center;
+  background: var(--surface); border: 1px solid var(--line);
+  border-radius: 50%; box-shadow: var(--shadow);
+  font-size: 20px; cursor: pointer; color: var(--text);
+}
+.icon-btn:active { transform: scale(.94); }
+
+/* --------------------------- Contenu --------------------------- */
+main { max-width: 640px; margin: 0 auto; padding: 16px 18px 120px; }
+
+.card {
+  background: var(--surface); border: 1px solid var(--line);
+  border-radius: var(--radius); box-shadow: var(--shadow);
+  padding: 18px; margin-bottom: 16px;
+}
+.card h2 { margin: 0 0 14px; font-size: 15px; letter-spacing: .01em; color: var(--text-soft); font-weight: 600; }
+
+/* Bandeau budget : anneau de progression + chiffres clés */
+.budget { display: flex; align-items: center; gap: 20px; }
+.ring { flex: none; width: 116px; height: 116px; position: relative; }
+.ring svg { transform: rotate(-90deg); }
+.ring-label {
+  position: absolute; inset: 0; display: grid; place-items: center; text-align: center;
+}
+.ring-pct { font-size: 24px; font-weight: 750; }
+.ring-sub { font-size: 11px; color: var(--text-soft); margin-top: 2px; }
+.budget-figures { flex: 1; min-width: 0; }
+.fig { display: flex; justify-content: space-between; align-items: baseline; padding: 4px 0; }
+.fig .k { color: var(--text-soft); font-size: 13px; }
+.fig .v { font-weight: 700; font-size: 17px; }
+.fig .v.big { font-size: 22px; }
+.v.pos { color: var(--ok); } .v.neg { color: var(--danger); }
+
+/* Grille des graphiques */
+.charts { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+@media (max-width: 460px) { .charts { grid-template-columns: 1fr; } }
+.legend { margin-top: 10px; display: flex; flex-direction: column; gap: 6px; }
+.legend .row { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+.legend .swatch { width: 10px; height: 10px; border-radius: 3px; flex: none; }
+.legend .cat { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.legend .amt { color: var(--text-soft); font-weight: 600; }
+
+/* Liste des dépenses */
+.exp-list { list-style: none; margin: 0; padding: 0; }
+.exp {
+  display: flex; align-items: center; gap: 12px;
+  padding: 12px 4px; border-bottom: 1px solid var(--line);
+}
+.exp:last-child { border-bottom: none; }
+.exp-ico {
+  width: 42px; height: 42px; flex: none; border-radius: 12px;
+  display: grid; place-items: center; font-size: 20px; background: var(--surface-2);
+}
+.exp-main { flex: 1; min-width: 0; }
+.exp-title { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.exp-meta { font-size: 12px; color: var(--text-soft); }
+.exp-amt { font-weight: 750; font-size: 16px; }
+.empty { text-align: center; color: var(--text-soft); padding: 28px 10px; }
+.empty .big { font-size: 34px; }
+
+/* Boutons d'export */
+.exports { display: flex; gap: 12px; }
+.btn {
+  flex: 1; min-height: var(--tap);
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  border-radius: var(--radius-sm); border: 1px solid var(--line);
+  background: var(--surface); color: var(--text);
+  font-size: 16px; font-weight: 650; cursor: pointer; box-shadow: var(--shadow);
+}
+.btn:active { transform: scale(.98); }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.btn.ghost { background: transparent; box-shadow: none; }
+.btn.danger { color: var(--danger); border-color: color-mix(in srgb, var(--danger) 35%, var(--line)); }
+.btn.full { width: 100%; }
+
+/* Bouton flottant d'ajout rapide (gros, pouce-friendly) */
+.fab {
+  position: fixed; z-index: 30;
+  right: max(20px, env(safe-area-inset-right));
+  bottom: calc(20px + env(safe-area-inset-bottom));
+  width: 66px; height: 66px; border-radius: 50%;
+  background: var(--accent); color: #fff; border: none;
+  font-size: 34px; line-height: 1; font-weight: 300;
+  box-shadow: 0 8px 24px color-mix(in srgb, var(--accent) 45%, transparent);
+  cursor: pointer; display: grid; place-items: center;
+}
+.fab:active { transform: scale(.93); }
+
+/* --------------------------- Feuilles modales (bottom sheet) --------------------------- */
+.scrim {
+  position: fixed; inset: 0; z-index: 40;
+  background: rgba(0,0,0,.42); opacity: 0; pointer-events: none; transition: opacity .2s ease;
+}
+.scrim.open { opacity: 1; pointer-events: auto; }
+.sheet {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 41;
+  max-width: 640px; margin: 0 auto;
+  background: var(--surface); color: var(--text);
+  border-radius: 22px 22px 0 0;
+  padding: 10px 18px calc(20px + env(safe-area-inset-bottom));
+  box-shadow: 0 -10px 40px rgba(0,0,0,.28);
+  transform: translateY(110%); transition: transform .28s cubic-bezier(.32,.72,0,1);
+  max-height: 92vh; overflow-y: auto;
+}
+.sheet.open { transform: translateY(0); }
+.grabber { width: 40px; height: 5px; border-radius: 3px; background: var(--line); margin: 6px auto 12px; }
+.sheet h3 { margin: 4px 0 16px; font-size: 20px; }
+
+label.field { display: block; margin-bottom: 14px; }
+label.field > span { display: block; font-size: 13px; color: var(--text-soft); margin-bottom: 6px; }
+input, select {
+  width: 100%; min-height: var(--tap);
+  background: var(--surface-2); color: var(--text);
+  border: 1px solid var(--line); border-radius: var(--radius-sm);
+  padding: 0 14px; font-size: 17px; font-family: inherit;
+}
+input:focus, select:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+/* Grand champ montant */
+.amount-input { position: relative; }
+.amount-input input {
+  font-size: 40px; font-weight: 750; height: 76px; text-align: center; letter-spacing: .01em;
+}
+.amount-input .cur { position: absolute; right: 16px; top: 50%; transform: translateY(-50%); color: var(--text-soft); font-size: 22px; font-weight: 600; }
+
+/* Puces de catégories (sélection rapide, gros boutons) */
+.cats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: 14px; }
+.cat-chip {
+  min-height: 64px; border-radius: 14px; border: 1.5px solid var(--line);
+  background: var(--surface-2); cursor: pointer;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px;
+  font-size: 11px; color: var(--text-soft); padding: 4px;
+}
+.cat-chip .e { font-size: 22px; }
+.cat-chip.sel { border-color: var(--accent); background: var(--accent-soft); color: var(--text); font-weight: 650; }
+.cat-chip:active { transform: scale(.96); }
+
+.sheet-actions { display: flex; gap: 12px; margin-top: 8px; }
+
+.trip-item {
+  display: flex; align-items: center; gap: 12px;
+  padding: 14px 6px; border-bottom: 1px solid var(--line); cursor: pointer;
+}
+.trip-item:last-of-type { border-bottom: none; }
+.trip-item .badge { width: 14px; height: 14px; border-radius: 50%; flex: none; }
+.trip-item .info { flex: 1; min-width: 0; }
+.trip-item .t { font-weight: 650; }
+.trip-item .s { font-size: 12px; color: var(--text-soft); }
+.trip-item.active { background: var(--accent-soft); border-radius: 12px; }
+.check { color: var(--accent); font-weight: 800; }
+
+/* Petit sélecteur de couleur de voyage */
+.swatches { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 14px; }
+.swatches button { width: 34px; height: 34px; border-radius: 50%; border: 2px solid transparent; cursor: pointer; }
+.swatches button.sel { border-color: var(--text); }
+
+/* Toast d'information */
+#toast {
+  position: fixed; z-index: 60; left: 50%; bottom: calc(96px + env(safe-area-inset-bottom));
+  transform: translateX(-50%) translateY(20px);
+  background: var(--text); color: var(--bg);
+  padding: 12px 18px; border-radius: 999px; font-size: 14px; font-weight: 600;
+  opacity: 0; pointer-events: none; transition: opacity .2s, transform .2s; max-width: 90vw; text-align: center;
+}
+#toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+/* Styles dédiés à l'impression / export PDF de secours */
+@media print {
+  header, .fab, .exports, .scrim, .sheet, #toast { display: none !important; }
+  body { background: #fff; color: #000; padding: 0; }
+  .card { box-shadow: none; border: 1px solid #ccc; }
+}
+
+/* --- Indicateur de synchronisation --- */
+.sync-line { margin-top: 8px; display: flex; justify-content: center; }
+.sync-pill { font-size: 11px; font-weight: 600; padding: 3px 10px; border-radius: 999px;
+  background: var(--surface-2); color: var(--text-soft); }
+.sync-pill.ok { color: var(--ok); } .sync-pill.wait { color: var(--warn); } .sync-pill.off { color: var(--text-soft); }
+
+/* --- Écrans plein écran : connexion & configuration --- */
+.overlay { position: fixed; inset: 0; z-index: 80; background: var(--bg);
+  display: none; align-items: center; justify-content: center;
+  padding: calc(24px + env(safe-area-inset-top)) 24px calc(24px + env(safe-area-inset-bottom)); }
+.auth-card { width: 100%; max-width: 360px; text-align: center; }
+.auth-logo { font-size: 52px; margin-bottom: 8px; }
+.auth-card h2 { margin: 0 0 4px; font-size: 22px; }
+.auth-sub { color: var(--text-soft); font-size: 14px; margin: 0 0 20px; line-height: 1.5; }
+.auth-card input { margin-bottom: 12px; text-align: left; }
+.auth-error { color: var(--danger); font-size: 13px; min-height: 18px; margin-bottom: 8px; display: none; }
+.auth-hint { color: var(--text-soft); font-size: 12px; margin-top: 16px; line-height: 1.5; }
+</style>
+</head>
+
+<body>
+<!-- =========================================================================
+     3. HTML — structure de l'interface
+     ========================================================================= -->
+
+<header>
+  <div class="head-row">
+    <!-- Sélecteur de voyage : ouvre la feuille de gestion des voyages -->
+    <button class="trip-switch" id="tripSwitch" aria-label="Changer de voyage">
+      <span class="trip-dot" id="tripDot"></span>
+      <span class="trip-name" id="tripName">—</span>
+      <span class="trip-caret">▾</span>
+    </button>
+    <!-- Bascule thème clair / sombre -->
+    <button class="icon-btn" id="themeBtn" aria-label="Changer le thème">☾</button>
+  </div>
+  <div class="sync-line"><span id="syncPill" class="sync-pill">…</span></div>
+</header>
+
+<main>
+  <!-- Bandeau budget -->
+  <section class="card" id="budgetCard">
+    <div class="budget">
+      <div class="ring" id="ring">
+        <svg width="116" height="116" viewBox="0 0 116 116">
+          <circle cx="58" cy="58" r="50" fill="none" stroke="var(--surface-2)" stroke-width="12"/>
+          <circle id="ringArc" cx="58" cy="58" r="50" fill="none" stroke="var(--accent)"
+                  stroke-width="12" stroke-linecap="round"
+                  stroke-dasharray="314.16" stroke-dashoffset="314.16"/>
+        </svg>
+        <div class="ring-label">
+          <div class="ring-pct num" id="ringPct">0%</div>
+          <div class="ring-sub">du budget</div>
+        </div>
+      </div>
+      <div class="budget-figures">
+        <div class="fig"><span class="k">Dépensé</span><span class="v big num" id="figSpent">0 €</span></div>
+        <div class="fig"><span class="k">Budget</span><span class="v num" id="figBudget">0 €</span></div>
+        <div class="fig"><span class="k">Restant</span><span class="v num" id="figLeft">0 €</span></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Graphiques -->
+  <section class="charts">
+    <div class="card" style="margin-bottom:0">
+      <h2>Par catégorie</h2>
+      <div id="donutWrap" style="display:grid;place-items:center;min-height:120px">
+        <svg id="donut" width="130" height="130" viewBox="0 0 130 130"></svg>
+      </div>
+      <div class="legend" id="donutLegend"></div>
+    </div>
+    <div class="card" style="margin-bottom:0">
+      <h2>Par jour</h2>
+      <div id="barsWrap" style="min-height:120px;display:grid;place-items:center">
+        <svg id="bars" width="100%" height="140" preserveAspectRatio="none"></svg>
+      </div>
+    </div>
+  </section>
+
+  <!-- Dernières dépenses -->
+  <section class="card" style="margin-top:16px">
+    <h2>Dépenses</h2>
+    <ul class="exp-list" id="expList"></ul>
+  </section>
+
+  <!-- Exports -->
+  <section class="exports">
+    <button class="btn" id="btnExcel">⬇︎ Excel</button>
+    <button class="btn" id="btnPdf">⬇︎ PDF</button>
+  </section>
+</main>
+
+<!-- Bouton flottant : ajout rapide en un geste -->
+<button class="fab" id="fab" aria-label="Ajouter une dépense">+</button>
+
+<!-- Scrim commun aux feuilles modales -->
+<div class="scrim" id="scrim"></div>
+
+<!-- ===== Feuille : ajout / édition d'une dépense ===== -->
+<div class="sheet" id="expSheet" role="dialog" aria-label="Ajouter une dépense">
+  <div class="grabber"></div>
+  <h3 id="expSheetTitle">Nouvelle dépense</h3>
+
+  <div class="amount-input">
+    <input id="inAmount" type="text" inputmode="decimal" placeholder="0" autocomplete="off" />
+    <span class="cur" id="inCur">€</span>
+  </div>
+
+  <div class="cats" id="catGrid"></div>
+
+  <label class="field"><span>Libellé (optionnel)</span>
+    <input id="inLabel" type="text" placeholder="Ex. Dîner au restaurant" autocomplete="off" />
+  </label>
+  <label class="field"><span>Date</span>
+    <input id="inDate" type="date" />
+  </label>
+
+  <div class="sheet-actions">
+    <button class="btn ghost" id="expCancel">Annuler</button>
+    <button class="btn primary" id="expSave">Enregistrer</button>
+  </div>
+  <button class="btn danger full" id="expDelete" style="margin-top:12px;display:none">Supprimer la dépense</button>
+</div>
+
+<!-- ===== Feuille : gestion des voyages ===== -->
+<div class="sheet" id="tripSheet" role="dialog" aria-label="Voyages">
+  <div class="grabber"></div>
+  <h3>Voyages</h3>
+  <div id="tripList"></div>
+  <button class="btn full" id="btnNewTrip" style="margin-top:16px">＋ Nouveau voyage</button>
+  <button class="btn ghost full" id="btnLogout" style="margin-top:10px;color:var(--text-soft)">Se déconnecter</button>
+</div>
+
+<!-- ===== Feuille : créer / modifier un voyage ===== -->
+<div class="sheet" id="tripEdit" role="dialog" aria-label="Voyage">
+  <div class="grabber"></div>
+  <h3 id="tripEditTitle">Nouveau voyage</h3>
+  <label class="field"><span>Nom du voyage</span>
+    <input id="inTripName" type="text" placeholder="Ex. Bavière 2026" autocomplete="off" />
+  </label>
+  <div class="charts" style="grid-template-columns:1fr 1fr">
+    <label class="field"><span>Budget global</span>
+      <input id="inTripBudget" type="text" inputmode="decimal" placeholder="0" autocomplete="off" />
+    </label>
+    <label class="field"><span>Devise</span>
+      <select id="inTripCur"></select>
+    </label>
+  </div>
+  <span style="display:block;font-size:13px;color:var(--text-soft);margin-bottom:6px">Couleur</span>
+  <div class="swatches" id="tripSwatches"></div>
+  <div class="sheet-actions">
+    <button class="btn ghost" id="tripEditCancel">Annuler</button>
+    <button class="btn primary" id="tripEditSave">Enregistrer</button>
+  </div>
+  <button class="btn danger full" id="tripDelete" style="margin-top:12px;display:none">Supprimer ce voyage</button>
+</div>
+
+
+<!-- ===== Écran de connexion (compte partagé) ===== -->
+<div class="overlay" id="authOverlay" style="display:flex">
+  <div class="auth-card">
+    <div class="auth-logo">✈️</div>
+    <h2>Dépenses de voyage</h2>
+    <p class="auth-sub">Connectez-vous avec le compte partagé du foyer.</p>
+    <input id="authEmail" type="email" inputmode="email" autocapitalize="none" autocomplete="username" placeholder="Email" />
+    <input id="authPass" type="password" autocomplete="current-password" placeholder="Mot de passe" />
+    <div id="authError" class="auth-error"></div>
+    <button class="btn primary full" id="authSubmit">Se connecter</button>
+    <p class="auth-hint">La toute première connexion nécessite Internet. Ensuite, l'application fonctionne hors-ligne et se synchronise au retour du réseau.</p>
+  </div>
+</div>
+
+<!-- ===== Écran affiché si la configuration Firebase manque ===== -->
+<div class="overlay" id="configOverlay">
+  <div class="auth-card">
+    <div class="auth-logo">⚙️</div>
+    <h2>Configuration requise</h2>
+    <p class="auth-sub">La configuration Firebase n'a pas encore été renseignée dans le fichier <b>index.html</b> (objet <code>firebaseConfig</code> en haut du script). Suivez le guide fourni, puis rechargez la page.</p>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script type="module">
+/* ==========================================================================
+   4. JAVASCRIPT — Édition Firebase (synchro multi-appareils)
+   --------------------------------------------------------------------------
+   Différence avec la version locale : les données ne vivent plus seulement
+   dans le téléphone, mais dans une base Firebase (Firestore) partagée. Les
+   deux appareils lisent/écrivent la même base et se synchronisent en temps
+   réel. Firestore garde en plus un CACHE LOCAL : l'app fonctionne hors-ligne,
+   les saisies faites sans réseau sont mises en file et envoyées au retour de
+   la connexion, automatiquement.
+   ========================================================================== */
+
+/* ---- Imports du SDK Firebase (modules ES, servis par Google) ---- */
+import { initializeApp } from "https://www.gstatic.com/firebasejs/12.15.0/firebase-app.js";
+import {
+  getAuth, setPersistence, browserLocalPersistence, indexedDBLocalPersistence,
+  onAuthStateChanged, signInWithEmailAndPassword, signOut
+} from "https://www.gstatic.com/firebasejs/12.15.0/firebase-auth.js";
+import {
+  initializeFirestore, persistentLocalCache, persistentMultipleTabManager,
+  collection, doc, setDoc, deleteDoc, onSnapshot, query
+} from "https://www.gstatic.com/firebasejs/12.15.0/firebase-firestore.js";
+
+/* ==========================================================================
+   ⬇️⬇️⬇️  CONFIGURATION FIREBASE — À REMPLIR (voir le guide fourni)  ⬇️⬇️⬇️
+   Copiez-collez ici l'objet de configuration donné par la console Firebase
+   (Paramètres du projet → Vos applications → Configuration du SDK).
+   Tant que ces valeurs sont les exemples ci-dessous, l'app affichera un
+   message d'erreur au lieu de l'écran de connexion.
+   ========================================================================== */
+const firebaseConfig = {
+  apiKey: "AIzaSyA2y5sHscXfX98Pe-9YkApgmwD6PaHedso",
+  authDomain: "depenses-voyage-916f5.firebaseapp.com",
+  projectId: "depenses-voyage-916f5",
+  storageBucket: "depenses-voyage-916f5.firebasestorage.app",
+  messagingSenderId: "531747560042",
+  appId: "1:531747560042:web:3dad00b24b655cd4928813"
+};
+/* ⬆️⬆️⬆️ ------------------------------------------------------------ ⬆️⬆️⬆️ */
+
+/* ---- Constantes métier (identiques à la version locale) ---------------- */
+const CATEGORIES = [
+  { id: "hebergement", label: "Hébergement",  emoji: "🛏️", color: "#3b82f6" },
+  { id: "restauration",label: "Restauration", emoji: "🍽️", color: "#ef4444" },
+  { id: "transport",   label: "Transport",    emoji: "🚆", color: "#8b5cf6" },
+  { id: "carburant",   label: "Carburant",    emoji: "⛽", color: "#f59e0b" },
+  { id: "activites",   label: "Activités",    emoji: "🎟️", color: "#10b981" },
+  { id: "shopping",    label: "Shopping",     emoji: "🛍️", color: "#ec4899" },
+  { id: "sante",       label: "Santé",        emoji: "🏥", color: "#14b8a6" },
+  { id: "divers",      label: "Divers",       emoji: "📦", color: "#6b7280" },
+];
+const catById = (id) => CATEGORIES.find(c => c.id === id) || CATEGORIES[CATEGORIES.length - 1];
+
+const CURRENCIES = [
+  { code: "EUR", symbol: "€" }, { code: "USD", symbol: "$" },
+  { code: "GBP", symbol: "£" }, { code: "CHF", symbol: "CHF" },
+  { code: "JPY", symbol: "¥" }, { code: "MAD", symbol: "DH" },
+];
+const curSymbol = (code) => (CURRENCIES.find(c => c.code === code) || CURRENCIES[0]).symbol;
+const TRIP_COLORS = ["#274690","#0e7c66","#b45309","#7c3aed","#be123c","#0369a1","#4d7c0f","#9d174d"];
+
+/* ---- Initialisation Firebase ------------------------------------------- */
+let app, auth, db, colTrips, colExpenses;
+let firebaseReady = false;
+try {
+  if (firebaseConfig.apiKey === "À_REMPLIR") throw new Error("config-absente");
+  app = initializeApp(firebaseConfig);
+  auth = getAuth(app);
+  // La session de connexion est mémorisée localement → l'app reste connectée
+  // hors-ligne et d'un lancement à l'autre.
+  setPersistence(auth, indexedDBLocalPersistence).catch(() =>
+    setPersistence(auth, browserLocalPersistence).catch(() => {}));
+  // Firestore avec cache local persistant (IndexedDB) + support multi-onglets.
+  db = initializeFirestore(app, {
+    localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() }),
+  });
+  colTrips = collection(db, "trips");
+  colExpenses = collection(db, "expenses");
+  firebaseReady = true;
+} catch (e) {
+  firebaseReady = false;
+}
+
+/* ---- État applicatif ---------------------------------------------------- */
+let trips = [];            // voyages (venant de Firestore, temps réel)
+let allExpenses = [];      // toutes les dépenses (temps réel)
+let expenses = [];         // dépenses du voyage actif (dérivé, pour le rendu)
+let activeTripId = localStorage.getItem("activeTripId") || null;  // choix local à chaque appareil
+let editingExpenseId = null;
+let editingTripId = null;
+let draftCat = "restauration";
+let draftTripColor = TRIP_COLORS[0];
+let seededThisSession = false;
+let syncMeta = { pending: false, fromCache: false };
+let unsubTrips = null, unsubExpenses = null;
+
+const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+const activeTrip = () => trips.find(t => t.id === activeTripId) || null;
+
+/* ---- Formatage (identique) --------------------------------------------- */
+function fmtMoney(n, code) {
+  const sym = curSymbol(code || (activeTrip() && activeTrip().currency) || "EUR");
+  const val = (Math.round(n * 100) / 100).toLocaleString("fr-FR",
+    { minimumFractionDigits: (n % 1 ? 2 : 0), maximumFractionDigits: 2 });
+  return `${val} ${sym}`;
+}
+function fmtDate(iso) {
+  const d = new Date(iso + "T00:00:00");
+  return d.toLocaleDateString("fr-FR", { day: "2-digit", month: "short" });
+}
+function todayISO() {
+  const d = new Date(); const p = (x) => String(x).padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+}
+function parseAmount(str) {
+  if (!str) return NaN;
+  return parseFloat(String(str).replace(/\s/g, "").replace(",", "."));
+}
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, m => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[m]));
+}
+
+/* ==========================================================================
+   AUTHENTIFICATION
+   ========================================================================== */
+function showAuthError(msg) {
+  const el = document.getElementById("authError");
+  el.textContent = msg; el.style.display = msg ? "block" : "none";
+}
+function showOverlay(which) {
+  // which : 'auth' | 'config' | null (app visible)
+  document.getElementById("authOverlay").style.display = which === "auth" ? "flex" : "none";
+  document.getElementById("configOverlay").style.display = which === "config" ? "flex" : "none";
+}
+
+async function doLogin() {
+  const email = document.getElementById("authEmail").value.trim();
+  const pass = document.getElementById("authPass").value;
+  if (!email || !pass) { showAuthError("Renseignez l'email et le mot de passe."); return; }
+  showAuthError("");
+  document.getElementById("authSubmit").disabled = true;
+  try {
+    await signInWithEmailAndPassword(auth, email, pass);
+    // La suite est gérée par onAuthStateChanged.
+  } catch (e) {
+    const map = {
+      "auth/invalid-credential": "Email ou mot de passe incorrect.",
+      "auth/invalid-email": "Adresse email invalide.",
+      "auth/user-not-found": "Compte introuvable.",
+      "auth/wrong-password": "Mot de passe incorrect.",
+      "auth/network-request-failed": "Pas de connexion : la première connexion doit se faire en ligne.",
+      "auth/too-many-requests": "Trop de tentatives, réessayez plus tard.",
+    };
+    showAuthError(map[e.code] || ("Erreur de connexion (" + (e.code || e.message) + ")"));
+  } finally {
+    document.getElementById("authSubmit").disabled = false;
+  }
+}
+
+function startAuth() {
+  if (!firebaseReady) { showOverlay("config"); return; }
+  onAuthStateChanged(auth, (user) => {
+    if (user) {
+      showOverlay(null);
+      startListeners();
+    } else {
+      stopListeners();
+      showOverlay("auth");
+    }
+  });
+}
+
+/* ==========================================================================
+   SYNCHRONISATION FIRESTORE (temps réel + hors-ligne)
+   ========================================================================== */
+function startListeners() {
+  if (unsubTrips || unsubExpenses) return;   // déjà en écoute
+
+  // Écoute des voyages. includeMetadataChanges → on connaît l'état de synchro.
+  unsubTrips = onSnapshot(query(colTrips), { includeMetadataChanges: true }, (snap) => {
+    trips = snap.docs.map(d => ({ id: d.id, ...d.data() }))
+                     .sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
+    seedIfEmpty(snap.metadata.fromCache);
+    ensureActiveTrip();
+    renderAll();
+  }, onSnapError);
+
+  // Écoute des dépenses (toutes ; le filtrage par voyage se fait au rendu).
+  unsubExpenses = onSnapshot(query(colExpenses), { includeMetadataChanges: true }, (snap) => {
+    allExpenses = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    syncMeta = { pending: snap.metadata.hasPendingWrites, fromCache: snap.metadata.fromCache };
+    renderAll();
+  }, onSnapError);
+}
+function stopListeners() {
+  if (unsubTrips) { unsubTrips(); unsubTrips = null; }
+  if (unsubExpenses) { unsubExpenses(); unsubExpenses = null; }
+  trips = []; allExpenses = [];
+}
+function onSnapError(err) {
+  // Erreur fréquente au démarrage : règles de sécurité qui refusent l'accès.
+  console.error("Firestore:", err);
+  toast("Accès à la base refusé — vérifiez les règles de sécurité");
+}
+
+/* Amorçage des voyages d'exemple, une seule fois, avec des identifiants FIXES.
+   Grâce à ces id déterministes, si les deux téléphones amorcent en même temps,
+   ils écrivent les mêmes documents → aucun doublon. */
+function seedIfEmpty(fromCache) {
+  if (trips.length || seededThisSession) return;
+  if (fromCache) return;   // on attend une confirmation serveur avant d'amorcer
+  seededThisSession = true;
+  const seed = [
+    { id: "seed-baviere-2026", name: "Bavière 2026", budget: 2500, color: TRIP_COLORS[0] },
+    { id: "seed-corse-2025",   name: "Corse 2025",   budget: 1800, color: TRIP_COLORS[1] },
+    { id: "seed-ardeche-2026", name: "Ardèche 2026", budget: 1200, color: TRIP_COLORS[3] },
+  ];
+  seed.forEach((s, i) => {
+    setDoc(doc(colTrips, s.id), {
+      name: s.name, budget: s.budget, currency: "EUR", color: s.color,
+      createdAt: Date.now() + i,
+    }, { merge: true }).catch(() => {});
+  });
+}
+function ensureActiveTrip() {
+  if (!activeTripId || !trips.find(t => t.id === activeTripId)) {
+    activeTripId = trips[0] ? trips[0].id : null;
+    if (activeTripId) localStorage.setItem("activeTripId", activeTripId);
+  }
+}
+
+/* ==========================================================================
+   RENDU (identique à la version locale, avec `expenses` recalculé)
+   ========================================================================== */
+function renderAll() {
+  expenses = allExpenses.filter(e => e.tripId === activeTripId)
+                        .sort((a, b) => (b.date + b.id).localeCompare(a.date + a.id));
+  applyAccent(); renderHeader(); renderBudget(); renderDonut(); renderBars();
+  renderExpenses(); renderSyncPill();
+}
+function applyAccent() {
+  const t = activeTrip();
+  const col = (t && t.color) || TRIP_COLORS[0];
+  document.documentElement.style.setProperty("--accent", col);
+  document.documentElement.style.setProperty("--accent-soft", col + "22");
+}
+function renderHeader() {
+  const t = activeTrip();
+  document.getElementById("tripName").textContent = t ? t.name : "—";
+  document.getElementById("tripDot").style.background = (t && t.color) || "var(--accent)";
+}
+function renderSyncPill() {
+  const el = document.getElementById("syncPill");
+  if (!el) return;
+  let txt, cls;
+  if (!navigator.onLine) { txt = "Hors-ligne"; cls = "off"; }
+  else if (syncMeta.pending) { txt = "Synchro…"; cls = "wait"; }
+  else { txt = "Synchronisé"; cls = "ok"; }
+  el.textContent = txt; el.className = "sync-pill " + cls;
+}
+function renderBudget() {
+  const t = activeTrip(); if (!t) return;
+  const spent = expenses.reduce((s, e) => s + e.amount, 0);
+  const budget = t.budget || 0;
+  const left = budget - spent;
+  const pct = budget > 0 ? spent / budget : 0;
+  document.getElementById("figSpent").textContent  = fmtMoney(spent);
+  document.getElementById("figBudget").textContent = fmtMoney(budget);
+  const leftEl = document.getElementById("figLeft");
+  leftEl.textContent = fmtMoney(left);
+  leftEl.className = "v num " + (left < 0 ? "neg" : "pos");
+  const C = 2 * Math.PI * 50;
+  const shown = Math.min(pct, 1);
+  document.getElementById("ringArc").style.strokeDashoffset = C * (1 - shown);
+  document.getElementById("ringPct").textContent = Math.round(pct * 100) + "%";
+  const arc = document.getElementById("ringArc");
+  let col = "var(--accent)";
+  if (pct >= 1) col = "var(--danger)"; else if (pct >= 0.85) col = "var(--warn)";
+  arc.style.stroke = col;
+}
+function renderDonut() {
+  const svg = document.getElementById("donut");
+  const legend = document.getElementById("donutLegend");
+  svg.innerHTML = ""; legend.innerHTML = "";
+  const totals = {};
+  expenses.forEach(e => totals[e.category] = (totals[e.category] || 0) + e.amount);
+  const entries = Object.entries(totals).filter(([, v]) => v > 0).sort((a, b) => b[1] - a[1]);
+  const sum = entries.reduce((s, [, v]) => s + v, 0);
+  if (sum === 0) {
+    svg.innerHTML = `<circle cx="65" cy="65" r="46" fill="none" stroke="var(--surface-2)" stroke-width="16"/>`;
+    legend.innerHTML = `<div class="empty" style="padding:8px">Aucune dépense</div>`;
+    return;
+  }
+  const cx = 65, cy = 65, r = 46, sw = 16;
+  const circ = 2 * Math.PI * r;
+  let offset = 0;
+  entries.forEach(([catId, val]) => {
+    const frac = val / sum;
+    const c = catById(catId);
+    const seg = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+    seg.setAttribute("cx", cx); seg.setAttribute("cy", cy); seg.setAttribute("r", r);
+    seg.setAttribute("fill", "none"); seg.setAttribute("stroke", c.color);
+    seg.setAttribute("stroke-width", sw);
+    seg.setAttribute("stroke-dasharray", `${frac * circ} ${circ}`);
+    seg.setAttribute("stroke-dashoffset", -offset * circ);
+    seg.setAttribute("transform", `rotate(-90 ${cx} ${cy})`);
+    svg.appendChild(seg);
+    offset += frac;
+    const row = document.createElement("div");
+    row.className = "row";
+    row.innerHTML = `<span class="swatch" style="background:${c.color}"></span>
+                     <span class="cat">${c.emoji} ${c.label}</span>
+                     <span class="amt num">${fmtMoney(val)}</span>`;
+    legend.appendChild(row);
+  });
+}
+function renderBars() {
+  const svg = document.getElementById("bars");
+  svg.innerHTML = "";
+  const byDay = {};
+  expenses.forEach(e => byDay[e.date] = (byDay[e.date] || 0) + e.amount);
+  const days = Object.keys(byDay).sort().slice(-7);
+  if (!days.length) {
+    svg.innerHTML = `<text x="50%" y="50%" fill="var(--text-soft)" font-size="13" text-anchor="middle">Aucune dépense</text>`;
+    return;
+  }
+  const max = Math.max(...days.map(d => byDay[d]));
+  const W = svg.clientWidth || 280, H = 140, pad = 22, gap = 8;
+  const bw = (W - pad * 2 - gap * (days.length - 1)) / days.length;
+  const t = activeTrip();
+  const col = (t && t.color) || "#274690";
+  days.forEach((d, i) => {
+    const h = max > 0 ? (byDay[d] / max) * (H - 44) : 0;
+    const x = pad + i * (bw + gap);
+    const y = H - 24 - h;
+    const rect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+    rect.setAttribute("x", x); rect.setAttribute("y", y);
+    rect.setAttribute("width", bw); rect.setAttribute("height", Math.max(h, 2));
+    rect.setAttribute("rx", Math.min(6, bw / 2)); rect.setAttribute("fill", col);
+    svg.appendChild(rect);
+    const lbl = document.createElementNS("http://www.w3.org/2000/svg", "text");
+    lbl.setAttribute("x", x + bw / 2); lbl.setAttribute("y", H - 8);
+    lbl.setAttribute("text-anchor", "middle"); lbl.setAttribute("font-size", "10");
+    lbl.setAttribute("fill", "var(--text-soft)");
+    lbl.textContent = new Date(d + "T00:00:00").toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit" });
+    svg.appendChild(lbl);
+  });
+}
+function renderExpenses() {
+  const ul = document.getElementById("expList");
+  ul.innerHTML = "";
+  if (!expenses.length) {
+    ul.innerHTML = `<li class="empty"><div class="big">🧾</div>Aucune dépense pour ce voyage.<br>Touchez « + » pour en ajouter une.</li>`;
+    return;
+  }
+  expenses.forEach(e => {
+    const c = catById(e.category);
+    const li = document.createElement("li");
+    li.className = "exp";
+    li.innerHTML = `
+      <div class="exp-ico">${c.emoji}</div>
+      <div class="exp-main">
+        <div class="exp-title">${e.label ? escapeHtml(e.label) : c.label}</div>
+        <div class="exp-meta">${c.label} · ${fmtDate(e.date)}</div>
+      </div>
+      <div class="exp-amt num">${fmtMoney(e.amount)}</div>`;
+    li.onclick = () => openExpenseSheet(e);
+    ul.appendChild(li);
+  });
+}
+
+/* ---- Feuilles modales --------------------------------------------------- */
+const scrim = document.getElementById("scrim");
+function openSheet(id) { document.getElementById(id).classList.add("open"); scrim.classList.add("open"); }
+function closeSheets() { document.querySelectorAll(".sheet").forEach(s => s.classList.remove("open")); scrim.classList.remove("open"); }
+scrim.onclick = closeSheets;
+
+/* ---- Feuille dépense : Firestore (écriture non bloquante) --------------- */
+function refreshCatSelection() {
+  document.querySelectorAll("#catGrid .cat-chip").forEach(el => el.classList.toggle("sel", el.dataset.id === draftCat));
+}
+function openExpenseSheet(exp) {
+  editingExpenseId = exp ? exp.id : null;
+  document.getElementById("expSheetTitle").textContent = exp ? "Modifier la dépense" : "Nouvelle dépense";
+  document.getElementById("inCur").textContent = curSymbol(activeTrip() && activeTrip().currency);
+  document.getElementById("inAmount").value = exp ? String(exp.amount).replace(".", ",") : "";
+  document.getElementById("inLabel").value = exp ? (exp.label || "") : "";
+  document.getElementById("inDate").value = exp ? exp.date : todayISO();
+  draftCat = exp ? exp.category : "restauration";
+  refreshCatSelection();
+  document.getElementById("expDelete").style.display = exp ? "block" : "none";
+  openSheet("expSheet");
+  if (!exp) setTimeout(() => document.getElementById("inAmount").focus(), 300);
+}
+function saveExpense() {
+  const amount = parseAmount(document.getElementById("inAmount").value);
+  if (isNaN(amount) || amount <= 0) { toast("Saisissez un montant valide"); return; }
+  if (!activeTripId) { toast("Créez d'abord un voyage"); return; }
+  const id = editingExpenseId || uid();
+  const rec = {
+    tripId: activeTripId,
+    amount: Math.round(amount * 100) / 100,
+    category: draftCat,
+    label: document.getElementById("inLabel").value.trim(),
+    date: document.getElementById("inDate").value || todayISO(),
+    createdAt: Date.now(),
+    // TODO ÉVOLUTION : photo (reçu), lat/lng (géoloc), currency/rate, author (qui a payé)
+  };
+  // Écriture NON bloquante : hors-ligne, la promesse ne se résout qu'au retour
+  // du réseau. On ne l'attend donc pas ; l'écouteur onSnapshot rafraîchit
+  // l'affichage immédiatement depuis le cache local.
+  setDoc(doc(colExpenses, id), rec, { merge: true }).catch(err => {
+    console.error(err); toast("Échec d'enregistrement");
+  });
+  closeSheets();
+  toast(editingExpenseId ? "Dépense modifiée" : "Dépense ajoutée");
+}
+function deleteExpense() {
+  if (!editingExpenseId) return;
+  deleteDoc(doc(colExpenses, editingExpenseId)).catch(err => { console.error(err); });
+  closeSheets();
+  toast("Dépense supprimée");
+}
+
+/* ---- Feuille voyages ---------------------------------------------------- */
+function renderTripList() {
+  const box = document.getElementById("tripList");
+  box.innerHTML = "";
+  trips.forEach(t => {
+    const el = document.createElement("div");
+    el.className = "trip-item" + (t.id === activeTripId ? " active" : "");
+    el.innerHTML = `
+      <span class="badge" style="background:${t.color}"></span>
+      <div class="info">
+        <div class="t">${escapeHtml(t.name)}</div>
+        <div class="s num">Budget ${fmtMoney(t.budget, t.currency)}</div>
+      </div>
+      ${t.id === activeTripId ? '<span class="check">✓</span>' : '<span class="trip-caret">›</span>'}`;
+    el.onclick = (ev) => {
+      if (ev.target.classList.contains("trip-caret") || ev.target.classList.contains("check")) openTripEdit(t);
+      else selectTrip(t.id);
+    };
+    box.appendChild(el);
+  });
+}
+function selectTrip(id) {
+  activeTripId = id;
+  localStorage.setItem("activeTripId", id);
+  renderAll(); closeSheets();
+}
+function refreshSwatchSelection() {
+  document.querySelectorAll("#tripSwatches button").forEach(el => el.classList.toggle("sel", el.dataset.color === draftTripColor));
+}
+function openTripEdit(trip) {
+  editingTripId = trip ? trip.id : null;
+  document.getElementById("tripEditTitle").textContent = trip ? "Modifier le voyage" : "Nouveau voyage";
+  document.getElementById("inTripName").value = trip ? trip.name : "";
+  document.getElementById("inTripBudget").value = trip ? String(trip.budget).replace(".", ",") : "";
+  document.getElementById("inTripCur").value = trip ? trip.currency : "EUR";
+  draftTripColor = trip ? trip.color : TRIP_COLORS[trips.length % TRIP_COLORS.length];
+  refreshSwatchSelection();
+  document.getElementById("tripDelete").style.display = (trip && trips.length > 1) ? "block" : "none";
+  closeSheets(); openSheet("tripEdit");
+}
+function saveTrip() {
+  const name = document.getElementById("inTripName").value.trim();
+  if (!name) { toast("Donnez un nom au voyage"); return; }
+  const budget = parseAmount(document.getElementById("inTripBudget").value) || 0;
+  const currency = document.getElementById("inTripCur").value;
+  const id = editingTripId || uid();
+  const existing = trips.find(x => x.id === id);
+  const rec = {
+    name, budget, currency, color: draftTripColor,
+    createdAt: existing ? existing.createdAt : Date.now(),
+  };
+  setDoc(doc(colTrips, id), rec, { merge: true }).catch(err => { console.error(err); toast("Échec d'enregistrement"); });
+  if (!editingTripId) { activeTripId = id; localStorage.setItem("activeTripId", id); }
+  closeSheets();
+  toast("Voyage enregistré");
+}
+function deleteTrip() {
+  if (!editingTripId || trips.length <= 1) return;
+  // Supprime les dépenses rattachées, puis le voyage.
+  allExpenses.filter(e => e.tripId === editingTripId)
+             .forEach(e => deleteDoc(doc(colExpenses, e.id)).catch(() => {}));
+  deleteDoc(doc(colTrips, editingTripId)).catch(err => console.error(err));
+  if (activeTripId === editingTripId) {
+    const rest = trips.filter(t => t.id !== editingTripId);
+    activeTripId = rest[0] ? rest[0].id : null;
+    if (activeTripId) localStorage.setItem("activeTripId", activeTripId);
+  }
+  closeSheets();
+  toast("Voyage supprimé");
+}
+
+/* ---- Thème clair / sombre (réglage local à l'appareil) ----------------- */
+function applyTheme(pref) {
+  const root = document.documentElement;
+  if (pref === "auto") root.removeAttribute("data-theme"); else root.setAttribute("data-theme", pref);
+  const isDark = pref === "dark" || (pref === "auto" && matchMedia("(prefers-color-scheme: dark)").matches);
+  document.getElementById("themeBtn").textContent = isDark ? "☀︎" : "☾";
+}
+function toggleTheme() {
+  const cur = localStorage.getItem("theme") || "auto";
+  const next = cur === "auto" ? "light" : cur === "light" ? "dark" : "auto";
+  localStorage.setItem("theme", next);
+  applyTheme(next);
+  toast("Thème : " + ({ auto: "automatique", light: "clair", dark: "sombre" }[next]));
+}
+
+/* ---- Toast -------------------------------------------------------------- */
+let toastTimer = null;
+function toast(msg) {
+  const el = document.getElementById("toast");
+  el.textContent = msg; el.classList.add("show");
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.classList.remove("show"), 2200);
+}
+
+/* ==========================================================================
+   EXPORTS Excel / PDF (inchangés — voir version précédente)
+   ========================================================================== */
+function buildRows() {
+  const t = activeTrip();
+  const rows = expenses.slice().sort((a, b) => a.date.localeCompare(b.date)).map(e => ({
+    Date: e.date, Catégorie: catById(e.category).label, Libellé: e.label || "", Montant: e.amount,
+  }));
+  const total = expenses.reduce((s, e) => s + e.amount, 0);
+  return { t, rows, total };
+}
+function loadScript(src) {
+  return new Promise((resolve, reject) => {
+    const s = document.createElement("script");
+    s.src = src; s.onload = resolve; s.onerror = reject;
+    document.head.appendChild(s);
+    setTimeout(reject, 6000);
+  });
+}
+async function exportExcel() {
+  const { t, rows, total } = buildRows();
+  if (!rows.length) { toast("Aucune dépense à exporter"); return; }
+  const fileBase = "depenses_" + (t ? t.name.replace(/[^\w\-]+/g, "_") : "voyage");
+  try {
+    if (!window.XLSX) await loadScript("https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js");
+    const data = rows.map(r => ({ ...r }));
+    data.push({}); data.push({ Date: "", Catégorie: "", Libellé: "TOTAL", Montant: total });
+    const ws = XLSX.utils.json_to_sheet(data, { header: ["Date", "Catégorie", "Libellé", "Montant"] });
+    ws["!cols"] = [{ wch: 12 }, { wch: 16 }, { wch: 30 }, { wch: 12 }];
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, (t ? t.name : "Voyage").slice(0, 28));
+    XLSX.writeFile(wb, fileBase + ".xlsx");
+    toast("Export Excel (.xlsx) prêt");
+  } catch (e) {
+    exportCSV(fileBase, rows, total);
+    toast("Export CSV (compatible Excel)");
+  }
+}
+function exportCSV(fileBase, rows, total) {
+  const esc = (v) => `"${String(v).replace(/"/g, '""')}"`;
+  const lines = [["Date", "Catégorie", "Libellé", "Montant"].map(esc).join(";")];
+  rows.forEach(r => lines.push([r.Date, r.Catégorie, r.Libellé, String(r.Montant).replace(".", ",")].map(esc).join(";")));
+  lines.push(["", "", "TOTAL", String(total).replace(".", ",")].map(esc).join(";"));
+  const blob = new Blob(["\uFEFF" + lines.join("\r\n")], { type: "text/csv;charset=utf-8;" });
+  downloadBlob(blob, fileBase + ".csv");
+}
+async function exportPDF() {
+  const { t, rows, total } = buildRows();
+  if (!rows.length) { toast("Aucune dépense à exporter"); return; }
+  const fileBase = "depenses_" + (t ? t.name.replace(/[^\w\-]+/g, "_") : "voyage");
+  try {
+    if (!window.jspdf) await loadScript("https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js");
+    await loadScript("https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js");
+    const { jsPDF } = window.jspdf;
+    const docp = new jsPDF();
+    docp.setFontSize(16); docp.text(t ? t.name : "Voyage", 14, 18);
+    docp.setFontSize(10); docp.setTextColor(120);
+    docp.text(`Budget ${fmtMoney(t.budget, t.currency)}  ·  Dépensé ${fmtMoney(total, t.currency)}  ·  Restant ${fmtMoney(t.budget - total, t.currency)}`, 14, 25);
+    docp.autoTable({
+      startY: 32,
+      head: [["Date", "Catégorie", "Libellé", "Montant"]],
+      body: rows.map(r => [r.Date, r.Catégorie, r.Libellé, fmtMoney(r.Montant, t.currency)]),
+      foot: [["", "", "TOTAL", fmtMoney(total, t.currency)]],
+      styles: { fontSize: 9 }, headStyles: { fillColor: hexToRgb((t && t.color) || "#274690") },
+      footStyles: { fillColor: [240, 240, 240], textColor: 20, fontStyle: "bold" },
+    });
+    docp.save(fileBase + ".pdf");
+    toast("Export PDF prêt");
+  } catch (e) {
+    printFallback(t, rows, total);
+  }
+}
+function printFallback(t, rows, total) {
+  const w = window.open("", "_blank");
+  if (!w) { toast("Autorisez les fenêtres pour l'export PDF"); return; }
+  const body = rows.map(r =>
+    `<tr><td>${r.Date}</td><td>${escapeHtml(r.Catégorie)}</td><td>${escapeHtml(r.Libellé)}</td><td style="text-align:right">${fmtMoney(r.Montant, t.currency)}</td></tr>`).join("");
+  w.document.write(`<!doctype html><meta charset="utf-8"><title>${escapeHtml(t.name)}</title>
+    <style>body{font-family:-apple-system,Arial,sans-serif;padding:24px;color:#111}
+    h1{font-size:20px;margin:0 0 4px} .sub{color:#666;font-size:13px;margin-bottom:16px}
+    table{width:100%;border-collapse:collapse;font-size:13px}
+    th,td{border-bottom:1px solid #ddd;padding:8px;text-align:left}
+    th{background:${(t && t.color) || "#274690"};color:#fff}
+    tfoot td{font-weight:bold;border-top:2px solid #333}</style>
+    <h1>${escapeHtml(t.name)}</h1>
+    <div class="sub">Budget ${fmtMoney(t.budget, t.currency)} · Dépensé ${fmtMoney(total, t.currency)} · Restant ${fmtMoney(t.budget - total, t.currency)}</div>
+    <table><thead><tr><th>Date</th><th>Catégorie</th><th>Libellé</th><th style="text-align:right">Montant</th></tr></thead>
+    <tbody>${body}</tbody>
+    <tfoot><tr><td colspan="3">TOTAL</td><td style="text-align:right">${fmtMoney(total, t.currency)}</td></tr></tfoot></table>`);
+  w.document.close();
+  setTimeout(() => { w.focus(); w.print(); }, 400);
+  toast("Utilisez « Enregistrer au format PDF »");
+}
+function downloadBlob(blob, filename) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = filename; document.body.appendChild(a); a.click();
+  setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 500);
+}
+function hexToRgb(hex) {
+  const h = hex.replace("#", "");
+  return [parseInt(h.substr(0, 2), 16), parseInt(h.substr(2, 2), 16), parseInt(h.substr(4, 2), 16)];
+}
+
+/* ---- Construction des éléments statiques ------------------------------- */
+function buildStaticUI() {
+  const grid = document.getElementById("catGrid");
+  grid.innerHTML = "";
+  CATEGORIES.forEach(c => {
+    const b = document.createElement("button");
+    b.className = "cat-chip"; b.dataset.id = c.id;
+    b.innerHTML = `<span class="e">${c.emoji}</span><span>${c.label}</span>`;
+    b.onclick = () => { draftCat = c.id; refreshCatSelection(); };
+    grid.appendChild(b);
+  });
+  const curSel = document.getElementById("inTripCur");
+  curSel.innerHTML = CURRENCIES.map(c => `<option value="${c.code}">${c.code} ${c.symbol}</option>`).join("");
+  const sw = document.getElementById("tripSwatches");
+  sw.innerHTML = "";
+  TRIP_COLORS.forEach(col => {
+    const b = document.createElement("button");
+    b.style.background = col; b.dataset.color = col;
+    b.onclick = () => { draftTripColor = col; refreshSwatchSelection(); };
+    sw.appendChild(b);
+  });
+}
+
+/* ---- Service Worker (hors-ligne) --------------------------------------- */
+function registerServiceWorker() {
+  if (!("serviceWorker" in navigator)) return;
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("./sw.js").catch(() => {});
+  });
+}
+
+/* ---- Câblage des événements -------------------------------------------- */
+function wire() {
+  document.getElementById("fab").onclick = () => openExpenseSheet(null);
+  document.getElementById("expCancel").onclick = closeSheets;
+  document.getElementById("expSave").onclick = saveExpense;
+  document.getElementById("expDelete").onclick = deleteExpense;
+  document.getElementById("tripSwitch").onclick = () => { renderTripList(); openSheet("tripSheet"); };
+  document.getElementById("btnNewTrip").onclick = () => openTripEdit(null);
+  document.getElementById("tripEditCancel").onclick = closeSheets;
+  document.getElementById("tripEditSave").onclick = saveTrip;
+  document.getElementById("tripDelete").onclick = deleteTrip;
+  document.getElementById("themeBtn").onclick = toggleTheme;
+  document.getElementById("btnExcel").onclick = exportExcel;
+  document.getElementById("btnPdf").onclick = exportPDF;
+  document.getElementById("inAmount").addEventListener("keydown", (e) => { if (e.key === "Enter") saveExpense(); });
+  window.addEventListener("resize", () => renderBars());
+  window.addEventListener("online", renderSyncPill);
+  window.addEventListener("offline", renderSyncPill);
+
+  // Authentification
+  document.getElementById("authSubmit").onclick = doLogin;
+  document.getElementById("authPass").addEventListener("keydown", (e) => { if (e.key === "Enter") doLogin(); });
+  document.getElementById("btnLogout").onclick = () => {
+    if (firebaseReady) signOut(auth);
+    closeSheets();
+  };
+}
+
+/* ---- Démarrage ---------------------------------------------------------- */
+applyTheme(localStorage.getItem("theme") || "auto");
+buildStaticUI();
+wire();
+registerServiceWorker();
+startAuth();
+
+</script>
+</body>
+</html>
