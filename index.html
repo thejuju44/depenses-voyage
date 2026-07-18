@@ -157,8 +157,10 @@ main { max-width: 640px; margin: 0 auto; padding: 16px 18px 120px; }
 .ring-label {
   position: absolute; inset: 0; display: grid; place-items: center; text-align: center;
 }
-.ring-pct { font-size: 24px; font-weight: 750; }
-.ring-sub { font-size: 11px; color: var(--text-soft); margin-top: 2px; }
+/* Le pourcentage est descendu et « du budget » remonté via transform :
+   cela décale visuellement sans perturber le centrage du bloc. */
+.ring-pct { font-size: 24px; font-weight: 750; transform: translateY(5px); }
+.ring-sub { font-size: 11px; color: var(--text-soft); margin-top: 2px; transform: translateY(-4px); }
 .budget-figures { flex: 1; min-width: 0; }
 .fig { display: flex; justify-content: space-between; align-items: baseline; padding: 4px 0; }
 .fig .k { color: var(--text-soft); font-size: 13px; }
@@ -251,12 +253,12 @@ input, select {
 }
 input:focus, select:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
 
-/* Grand champ montant */
-.amount-input { position: relative; }
+/* Grand champ montant (hauteur réduite + marge basse pour ne pas toucher les catégories) */
+.amount-input { position: relative; margin-bottom: 14px; }
 .amount-input input {
-  font-size: 40px; font-weight: 750; height: 76px; text-align: center; letter-spacing: .01em;
+  font-size: 32px; font-weight: 750; height: 62px; text-align: center; letter-spacing: .01em;
 }
-.amount-input .cur { position: absolute; right: 16px; top: 50%; transform: translateY(-50%); color: var(--text-soft); font-size: 22px; font-weight: 600; }
+.amount-input .cur { position: absolute; right: 16px; top: 50%; transform: translateY(-50%); color: var(--text-soft); font-size: 19px; font-weight: 600; }
 
 /* Puces de catégories (sélection rapide, gros boutons) */
 .cats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: 14px; }
@@ -282,6 +284,13 @@ input:focus, select:focus { outline: 2px solid var(--accent); outline-offset: 1p
 .trip-item .t { font-weight: 650; }
 .trip-item .s { font-size: 12px; color: var(--text-soft); }
 .trip-item.active { background: var(--accent-soft); border-radius: 12px; }
+/* Bouton d'édition d'un voyage : zone tactile confortable, bien distincte du corps de la ligne */
+.trip-edit-btn {
+  width: 44px; height: 44px; flex: none; border-radius: 50%;
+  border: 1px solid var(--line); background: var(--surface-2); color: var(--text);
+  font-size: 17px; cursor: pointer; display: grid; place-items: center;
+}
+.trip-edit-btn:active { transform: scale(.92); }
 .check { color: var(--accent); font-weight: 800; }
 
 /* Petit sélecteur de couleur de voyage */
@@ -921,17 +930,16 @@ function renderTripList() {
   trips.forEach(t => {
     const el = document.createElement("div");
     el.className = "trip-item" + (t.id === activeTripId ? " active" : "");
+    // Deux zones distinctes : le corps sélectionne le voyage, le bouton crayon l'édite.
     el.innerHTML = `
       <span class="badge" style="background:${t.color}"></span>
       <div class="info">
-        <div class="t">${escapeHtml(t.name)}</div>
+        <div class="t">${escapeHtml(t.name)}${t.id === activeTripId ? ' <span class="check">✓</span>' : ''}</div>
         <div class="s num">Budget ${fmtMoney(t.budget, t.currency)}</div>
       </div>
-      ${t.id === activeTripId ? '<span class="check">✓</span>' : '<span class="trip-caret">›</span>'}`;
-    el.onclick = (ev) => {
-      if (ev.target.classList.contains("trip-caret") || ev.target.classList.contains("check")) openTripEdit(t);
-      else selectTrip(t.id);
-    };
+      <button class="trip-edit-btn" aria-label="Modifier ce voyage">✎</button>`;
+    el.querySelector(".trip-edit-btn").onclick = (ev) => { ev.stopPropagation(); openTripEdit(t); };
+    el.onclick = () => selectTrip(t.id);
     box.appendChild(el);
   });
 }
@@ -972,6 +980,13 @@ function saveTrip() {
 }
 function deleteTrip() {
   if (!editingTripId || trips.length <= 1) return;
+  const t = trips.find(x => x.id === editingTripId);
+  const n = allExpenses.filter(e => e.tripId === editingTripId).length;
+  // Confirmation : l'action est irréversible et se propage à l'autre appareil.
+  const msg = `Supprimer « ${t ? t.name : "ce voyage"} »` +
+    (n ? ` et ses ${n} dépense${n > 1 ? "s" : ""} ?` : " ?") +
+    "\n\nCette action est définitive et s'applique aux deux téléphones.";
+  if (!window.confirm(msg)) return;
   // Supprime les dépenses rattachées, puis le voyage.
   allExpenses.filter(e => e.tripId === editingTripId)
              .forEach(e => deleteDoc(doc(colExpenses, e.id)).catch(() => {}));
