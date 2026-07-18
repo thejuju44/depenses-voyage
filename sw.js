@@ -14,7 +14,7 @@
    forcer le renouvellement du cache chez les utilisateurs.
    ============================================================================ */
 
-const CACHE_NAME = "depenses-voyage-v2";
+const CACHE_NAME = "depenses-voyage-v3";
 
 // Fichiers de l'app à mettre en cache dès l'installation du Service Worker.
 const APP_SHELL = [

@@ -162,10 +162,12 @@ main { max-width: 640px; margin: 0 auto; padding: 16px 18px 120px; }
 .ring-pct { font-size: 24px; font-weight: 750; transform: translateY(5px); }
 .ring-sub { font-size: 11px; color: var(--text-soft); margin-top: 2px; transform: translateY(-4px); }
 .budget-figures { flex: 1; min-width: 0; }
-.fig { display: flex; justify-content: space-between; align-items: baseline; padding: 4px 0; }
-.fig .k { color: var(--text-soft); font-size: 13px; }
-.fig .v { font-weight: 700; font-size: 17px; }
-.fig .v.big { font-size: 22px; }
+.fig { display: flex; justify-content: space-between; align-items: baseline; padding: 4px 0; gap: 10px; }
+.fig .k { color: var(--text-soft); font-size: 13px; flex: none; }
+/* white-space:nowrap : le montant ne doit jamais se couper en deux lignes.
+   clamp() : sur un écran étroit, il rétrécit légèrement au lieu de déborder. */
+.fig .v { font-weight: 700; font-size: clamp(15px, 4.6vw, 17px); white-space: nowrap; }
+.fig .v.big { font-size: clamp(17px, 6vw, 22px); }
 .v.pos { color: var(--ok); } .v.neg { color: var(--danger); }
 
 /* Grille des graphiques */
@@ -918,6 +920,10 @@ function saveExpense() {
 }
 function deleteExpense() {
   if (!editingExpenseId) return;
+  // Confirmation : la suppression est immédiate et se propage à l'autre appareil.
+  const e = allExpenses.find(x => x.id === editingExpenseId);
+  const quoi = e ? `${fmtMoney(e.amount)} — ${e.label || catById(e.category).label}` : "cette dépense";
+  if (!window.confirm(`Supprimer cette dépense ?\n\n${quoi}`)) return;
   deleteDoc(doc(colExpenses, editingExpenseId)).catch(err => { console.error(err); });
   closeSheets();
   toast("Dépense supprimée");
